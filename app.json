@@ -4,10 +4,26 @@
     "slug": "home-automation-mobile",
     "version": "0.1.0",
     "ios": {
-      "bundleIdentifier": "com.toddkimery.homeautomationmobile"
+      "bundleIdentifier": "com.toddkimery.homeautomationmobile",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Connect to your dryer sensor on your Wi-Fi network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
       "package": "com.toddkimery.homeautomationmobile"
-    }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
   }
 }
