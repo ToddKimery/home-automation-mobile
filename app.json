@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Home Monitor",
+    "slug": "home-automation-mobile",
+    "version": "0.1.0",
+    "ios": {
+      "bundleIdentifier": "com.toddkimery.homeautomationmobile"
+    },
+    "android": {
+      "package": "com.toddkimery.homeautomationmobile"
+    }
+  }
+}
