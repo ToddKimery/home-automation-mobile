@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import CloudHistory, { cloudConfigured } from './components/CloudHistory';
 
 type SensorStatus = {
   running: boolean;
@@ -42,6 +43,7 @@ function isRun(value: unknown): value is Run {
 }
 
 export default function App() {
+  const [mode, setMode] = useState<'local' | 'cloud'>(cloudConfigured ? 'cloud' : 'local');
   const [address, setAddress] = useState(addressExample);
   const [origin, setOrigin] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -49,6 +51,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [addressError, setAddressError] = useState('');
+  const [cloudFallback, setCloudFallback] = useState(false);
 
   function connect() {
     const input = address.trim();
@@ -68,7 +71,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!origin) return;
+    if (!origin || mode !== 'local') return;
     let active = true;
     let nextPoll: ReturnType<typeof setTimeout> | undefined;
     let currentRequest: AbortController | undefined;
@@ -92,6 +95,10 @@ export default function App() {
         if (active) {
           const detail = cause instanceof Error ? cause.message : 'Connection failed.';
           setError(request.signal.aborted ? 'The dryer did not respond in time.' : detail);
+          if (cloudConfigured && (request.signal.aborted || cause instanceof TypeError)) {
+            setCloudFallback(true);
+            setMode('cloud');
+          }
         }
       } finally {
         clearTimeout(timeout);
@@ -109,7 +116,7 @@ export default function App() {
       clearTimeout(nextPoll);
       currentRequest?.abort();
     };
-  }, [origin, attempt]);
+  }, [origin, attempt, mode]);
 
   const status = snapshot?.status;
   const age = status?.lastOkAgoS;
@@ -121,55 +128,75 @@ export default function App() {
         <StatusBar style="light" />
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text accessibilityRole="header" style={styles.title}>Dryer monitor</Text>
-          <Text style={styles.muted}>Connect your phone and ESP32 to the same Wi-Fi network.</Text>
-          <Text style={styles.label}>Sensor address</Text>
-          <View style={styles.controls}>
-            <TextInput
-              accessibilityLabel="Sensor address"
-              style={styles.input}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              value={address}
-              onChangeText={setAddress}
-              onSubmitEditing={connect}
-            />
-            <Pressable accessibilityRole="button" style={styles.button} onPress={connect}>
-              <Text style={styles.buttonText}>Connect</Text>
+          <View style={styles.modeSwitch}>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'local' }}
+              style={[styles.button, styles.modeButton, mode !== 'local' && styles.inactiveMode]} onPress={() => setMode('local')}>
+              <Text style={styles.buttonText}>Local</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'cloud' }}
+              style={[styles.button, styles.modeButton, mode !== 'cloud' && styles.inactiveMode]} onPress={() => { setCloudFallback(false); setMode('cloud'); }}>
+              <Text style={styles.buttonText}>Cloud</Text>
             </Pressable>
           </View>
-          {!!addressError && <Text accessibilityLiveRegion="polite" style={styles.error}>{addressError}</Text>}
-          {!!error && <Text accessibilityLiveRegion="polite" style={styles.error}>{error} Check Wi-Fi and the sensor address.</Text>}
-          {loading && !snapshot && <Text style={styles.muted}>Connecting…</Text>}
-          {snapshot && status && (
+          {mode === 'cloud' && (
             <>
-              <View style={styles.card}>
-                <Text style={styles.label}>Dryer status</Text>
-                <Text style={styles.status}>{status.running ? 'Running' : 'Idle'}</Text>
-                {status.running && <Text style={styles.muted}>{status.runMin.toFixed(1)} min into cycle</Text>}
-                <View style={styles.metrics}>
-                  <View>
-                    <Text style={styles.label}>Temperature</Text>
-                    <Text style={styles.value}>{status.t == null ? 'Unavailable' : `${status.t.toFixed(1)} °C`}</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.label}>Humidity</Text>
-                    <Text style={styles.value}>{status.h == null ? 'Unavailable' : `${status.h.toFixed(1)}%`}</Text>
-                  </View>
-                </View>
-                <Text style={styles.muted}>
-                  {stale ? 'Sensor readings are stale or unavailable. ' : ''}
-                  Updated {new Date(snapshot.receivedAt).toLocaleTimeString()}
-                </Text>
+              {cloudFallback && <Text style={styles.muted}>The dryer is unreachable on Wi-Fi. Showing cloud history.</Text>}
+              <CloudHistory />
+            </>
+          )}
+          {mode === 'local' && (
+            <>
+              <Text style={styles.muted}>Connect your phone and ESP32 to the same Wi-Fi network.</Text>
+              <Text style={styles.label}>Sensor address</Text>
+              <View style={styles.controls}>
+                <TextInput
+                  accessibilityLabel="Sensor address"
+                  style={styles.input}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  value={address}
+                  onChangeText={setAddress}
+                  onSubmitEditing={connect}
+                />
+                <Pressable accessibilityRole="button" style={styles.button} onPress={connect}>
+                  <Text style={styles.buttonText}>Connect</Text>
+                </Pressable>
               </View>
-              <Text accessibilityRole="header" style={styles.heading}>Recent runs</Text>
-              {!snapshot.runs.length && <Text style={styles.muted}>No completed runs on the sensor.</Text>}
-              {snapshot.runs.map((run) => (
-                <View key={run.id} style={styles.row}>
-                  <Text style={styles.value}>{run.start > 0 ? new Date(run.start * 1000).toLocaleString() : `Run ${run.id}`}</Text>
-                  <Text style={styles.muted}>{((run.n * run.step) / 60).toFixed(1)} min · Peak {(run.peak / 10).toFixed(1)} °C</Text>
-                </View>
-              ))}
+              {!!addressError && <Text accessibilityLiveRegion="polite" style={styles.error}>{addressError}</Text>}
+              {!!error && <Text accessibilityLiveRegion="polite" style={styles.error}>{error} Check Wi-Fi and the sensor address.</Text>}
+              {loading && !snapshot && <Text style={styles.muted}>Connecting…</Text>}
+              {snapshot && status && (
+                <>
+                  <View style={styles.card}>
+                    <Text style={styles.label}>Dryer status</Text>
+                    <Text style={styles.status}>{status.running ? 'Running' : 'Idle'}</Text>
+                    {status.running && <Text style={styles.muted}>{status.runMin.toFixed(1)} min into cycle</Text>}
+                    <View style={styles.metrics}>
+                      <View>
+                        <Text style={styles.label}>Temperature</Text>
+                        <Text style={styles.value}>{status.t == null ? 'Unavailable' : `${status.t.toFixed(1)} °C`}</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.label}>Humidity</Text>
+                        <Text style={styles.value}>{status.h == null ? 'Unavailable' : `${status.h.toFixed(1)}%`}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.muted}>
+                      {stale ? 'Sensor readings are stale or unavailable. ' : ''}
+                      Updated {new Date(snapshot.receivedAt).toLocaleTimeString()}
+                    </Text>
+                  </View>
+                  <Text accessibilityRole="header" style={styles.heading}>Recent runs</Text>
+                  {!snapshot.runs.length && <Text style={styles.muted}>No completed runs on the sensor.</Text>}
+                  {snapshot.runs.map((run) => (
+                    <View key={run.id} style={styles.row}>
+                      <Text style={styles.value}>{run.start > 0 ? new Date(run.start * 1000).toLocaleString() : `Run ${run.id}`}</Text>
+                      <Text style={styles.muted}>{((run.n * run.step) / 60).toFixed(1)} min · Peak {(run.peak / 10).toFixed(1)} °C</Text>
+                    </View>
+                  ))}
+            </>
+          )}
             </>
           )}
         </ScrollView>
@@ -186,6 +213,9 @@ const styles = StyleSheet.create({
   muted: { color: '#b0c4bd', fontSize: 15 },
   label: { color: '#bdd1c9', fontSize: 15 },
   controls: { gap: 8 },
+  modeSwitch: { flexDirection: 'row', gap: 8 },
+  modeButton: { flex: 1 },
+  inactiveMode: { backgroundColor: '#bdd1c9' },
   input: { color: '#f4faf6', backgroundColor: '#1c2a26', borderRadius: 12, padding: 14, fontSize: 16 },
   button: { minHeight: 48, borderRadius: 12, backgroundColor: '#a8edc5', alignItems: 'center', justifyContent: 'center', padding: 8 },
   buttonText: { color: '#111918', fontSize: 16, fontWeight: '700' },
