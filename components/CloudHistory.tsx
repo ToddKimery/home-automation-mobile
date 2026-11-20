@@ -3,10 +3,31 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { useEffect, useState } from 'react';
 import { AppState, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+const requestTimeoutMs = 12000;
+
+const fetchWithTimeout: typeof fetch = async (input, init) => {
+  const request = new AbortController();
+  const upstreamSignal = init?.signal;
+  const cancel = () => request.abort();
+  if (upstreamSignal?.aborted) cancel();
+  upstreamSignal?.addEventListener('abort', cancel, { once: true });
+
+  const timeout = setTimeout(cancel, requestTimeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: request.signal });
+  } finally {
+    clearTimeout(timeout);
+    upstreamSignal?.removeEventListener('abort', cancel);
+  }
+};
+
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
 const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
 const client = url?.startsWith('https://') && key?.startsWith('sb_publishable_')
-  ? createClient(url, key, { auth: { persistSession: false, detectSessionInUrl: false, autoRefreshToken: true } })
+  ? createClient(url, key, {
+    auth: { persistSession: false, detectSessionInUrl: false, autoRefreshToken: true },
+    global: { fetch: fetchWithTimeout },
+  })
   : undefined;
 
 export const cloudConfigured = Boolean(client);
@@ -95,8 +116,18 @@ function SignedInHistory({ supabase }: { supabase: SupabaseClient }) {
     setAuthBusy(true);
     setAuthError('');
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) setAuthError(error.message);
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error?.code === 'invalid_credentials') {
+        setAuthError('Email or password is incorrect. Use your dryer project’s Supabase Auth account.');
+      } else if (error?.name === 'AuthRetryableFetchError') {
+        setAuthError('Could not reach Supabase. Check Wi-Fi or mobile data and try again.');
+      } else if (error) {
+        setAuthError(error.message);
+      } else if (data.session) {
+        setUserId(data.session.user.id);
+      } else {
+        setAuthError('Supabase did not return a sign-in session.');
+      }
     } catch {
       setAuthError('Could not sign in. Check your internet connection.');
     } finally {
