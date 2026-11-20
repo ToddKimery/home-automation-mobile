@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import Icon from './Icon';
 import RunDetails, { decodeRunSeries, fahrenheit } from './RunDetails';
 
 const project = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim().replace(/\/$/, '');
@@ -136,7 +137,10 @@ export default function CloudHistory() {
 
   return (
     <View style={styles.content}>
-      <Text accessibilityRole="header" style={styles.title}>Cloud run history</Text>
+      <View style={styles.iconRow}>
+        <Icon name="cloud" color="#a8edc5" />
+        <Text accessibilityRole="header" style={styles.title}>Cloud run history</Text>
+      </View>
       {!!error && <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text>}
       {savedCode === undefined && <Text style={styles.secondary}>Checking phone pairing…</Text>}
       {savedCode === null && (
@@ -157,7 +161,10 @@ export default function CloudHistory() {
           <View style={styles.actions}>
             <Pressable accessibilityRole="button" style={styles.button} disabled={busy}
               onPress={() => void load(savedCode, false)}>
-              <Text style={styles.primary}>Refresh</Text>
+              <View style={styles.iconRow}>
+                <Icon name="refresh" size={18} color="#a8edc5" />
+                <Text style={styles.primary}>Refresh</Text>
+              </View>
             </Pressable>
             <Pressable accessibilityRole="button" style={styles.button} disabled={busy}
               onPress={() => void forgetPhone()}>
@@ -175,7 +182,10 @@ export default function CloudHistory() {
               <Text style={styles.secondary}>
                 {run.peak_c == null ? 'Peak unavailable' : `Peak ${fahrenheit(run.peak_c).toFixed(1)} °F`}
               </Text>
-              <Text style={styles.secondary}>View graphs</Text>
+              <View style={styles.iconRow}>
+                <Icon name="graph" size={17} color="#a8edc5" />
+                <Text style={styles.secondary}>View graphs</Text>
+              </View>
             </Pressable>
           ))}
         </>
@@ -190,6 +200,7 @@ export default function CloudHistory() {
 
 const styles = StyleSheet.create({
   content: { gap: 10 },
+  iconRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { color: '#f4faf6', fontSize: 23, fontWeight: '700' },
   primary: { color: '#f4faf6', fontSize: 16, fontWeight: '600' },
   secondary: { color: '#b0c4bd', fontSize: 15 },

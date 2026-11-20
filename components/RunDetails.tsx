@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Icon from './Icon';
 
 export function fahrenheit(celsius: number) {
   return celsius * 9 / 5 + 32;
@@ -61,6 +62,7 @@ export default function RunDetails({ title, onClose, load }: DetailsProps) {
       <SafeAreaView style={styles.screen}>
         <ScrollView contentContainerStyle={styles.content}>
           <Pressable accessibilityRole="button" onPress={onClose} style={styles.close}>
+            <Icon name="back" color="#a8edc5" />
             <Text style={styles.heading}>Back to runs</Text>
           </Pressable>
           <Text accessibilityRole="header" style={styles.title}>{title}</Text>
@@ -68,8 +70,8 @@ export default function RunDetails({ title, onClose, load }: DetailsProps) {
           {!error && !data && <ActivityIndicator accessibilityLabel="Loading run" color="#a8edc5" />}
           {data && (
             <>
-              <Chart title="Temperature (°F)" unit="°F" color="#ffc487" values={data.temperatureF} seconds={data.seconds} />
-              <Chart title="Relative humidity (%)" unit="%" color="#92d7f4" values={data.humidity} seconds={data.seconds} />
+              <Chart icon="temperature" title="Temperature (°F)" unit="°F" color="#ffc487" values={data.temperatureF} seconds={data.seconds} />
+              <Chart icon="humidity" title="Relative humidity (%)" unit="%" color="#92d7f4" values={data.humidity} seconds={data.seconds} />
             </>
           )}
         </ScrollView>
@@ -97,8 +99,8 @@ function plotIndices(values: number[]) {
   return indices;
 }
 
-function Chart({ title, values, seconds, unit, color }: {
-  title: string; values: number[]; seconds: number; unit: string; color: string;
+function Chart({ title, values, seconds, unit, color, icon }: {
+  icon: 'temperature' | 'humidity'; title: string; values: number[]; seconds: number; unit: string; color: string;
 }) {
   const [width, setWidth] = useState(0);
   const indices = plotIndices(values);
@@ -115,7 +117,10 @@ function Chart({ title, values, seconds, unit, color }: {
 
   return (
     <View style={styles.card} accessible accessibilityLabel={`${title} over ${minutes.toFixed(1)} minutes. Low ${min.toFixed(1)}, high ${max.toFixed(1)}.`}>
-      <Text style={styles.heading}>{title}</Text>
+      <View style={styles.iconRow}>
+        <Icon name={icon} color={color} />
+        <Text style={styles.heading}>{title}</Text>
+      </View>
       <Text style={styles.secondary}>Low {min.toFixed(1)}{unit} · High {max.toFixed(1)}{unit}</Text>
       <View style={styles.plot} onLayout={({ nativeEvent }) => setWidth(nativeEvent.layout.width)}>
         {[3, chartHeight / 2, chartHeight - 3].map(top => (
@@ -149,7 +154,8 @@ function Chart({ title, values, seconds, unit, color }: {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#111918' },
   content: { padding: 24, gap: 16, width: '100%', maxWidth: 560, alignSelf: 'center' },
-  close: { alignSelf: 'flex-start', padding: 10, minHeight: 48 },
+  iconRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  close: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', padding: 10, minHeight: 48 },
   title: { color: '#f4faf6', fontSize: 25, fontWeight: '700' },
   heading: { color: '#f4faf6', fontSize: 17, fontWeight: '600' },
   secondary: { color: '#b0c4bd', fontSize: 14 },

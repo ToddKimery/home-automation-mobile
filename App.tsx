@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import Icon from './components/Icon';
 import CloudHistory, { cloudConfigured } from './components/CloudHistory';
 import RunDetails, { decodeRunSeries, fahrenheit } from './components/RunDetails';
 
@@ -133,14 +134,19 @@ export default function App() {
       <SafeAreaView style={styles.screen}>
         <StatusBar style="light" />
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text accessibilityRole="header" style={styles.title}>Dryer monitor</Text>
+          <View style={styles.header}>
+            <Icon name="brand" size={52} />
+            <Text accessibilityRole="header" style={styles.title}>Dryer monitor</Text>
+          </View>
           <View style={styles.modeSwitch}>
             <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'local' }}
               style={[styles.button, styles.modeButton, mode !== 'local' && styles.inactiveMode]} onPress={() => setMode('local')}>
+              <Icon name="local" color="#111918" />
               <Text style={styles.buttonText}>Local</Text>
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'cloud' }}
               style={[styles.button, styles.modeButton, mode !== 'cloud' && styles.inactiveMode]} onPress={() => { setCloudFallback(false); setMode('cloud'); }}>
+              <Icon name="cloud" color="#111918" />
               <Text style={styles.buttonText}>Cloud</Text>
             </Pressable>
           </View>
@@ -180,11 +186,17 @@ export default function App() {
                     {status.running && <Text style={styles.muted}>{status.runMin.toFixed(1)} min into cycle</Text>}
                     <View style={styles.metrics}>
                       <View>
-                        <Text style={styles.label}>Temperature</Text>
+                        <View style={styles.iconRow}>
+                          <Icon name="temperature" size={18} color="#ffc487" />
+                          <Text style={styles.label}>Temperature</Text>
+                        </View>
                         <Text style={styles.value}>{status.t == null ? 'Unavailable' : `${fahrenheit(status.t).toFixed(1)} °F`}</Text>
                       </View>
                       <View>
-                        <Text style={styles.label}>Humidity</Text>
+                        <View style={styles.iconRow}>
+                          <Icon name="humidity" size={18} color="#92d7f4" />
+                          <Text style={styles.label}>Humidity</Text>
+                        </View>
                         <Text style={styles.value}>{status.h == null ? 'Unavailable' : `${status.h.toFixed(1)}%`}</Text>
                       </View>
                     </View>
@@ -199,7 +211,10 @@ export default function App() {
                     <Pressable key={run.id} accessibilityRole="button" accessibilityHint="Open run graphs" style={styles.row} onPress={() => setSelectedRun(run)}>
                       <Text style={styles.value}>{run.start > 0 ? new Date(run.start * 1000).toLocaleString() : `Run ${run.id}`}</Text>
                       <Text style={styles.muted}>{((run.n * run.step) / 60).toFixed(1)} min · Peak {fahrenheit(run.peak / 10).toFixed(1)} °F</Text>
-                      <Text style={styles.muted}>View graphs</Text>
+                      <View style={styles.iconRow}>
+                        <Icon name="graph" size={17} color="#a8edc5" />
+                        <Text style={styles.muted}>View graphs</Text>
+                      </View>
                     </Pressable>
                   ))}
             </>
@@ -222,13 +237,15 @@ export default function App() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#111918' },
   content: { padding: 24, gap: 12, width: '100%', maxWidth: 560, alignSelf: 'center' },
-  title: { color: '#f4faf6', fontSize: 34, fontWeight: '700' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  iconRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  title: { color: '#f4faf6', fontSize: 34, fontWeight: '700', flexShrink: 1 },
   heading: { color: '#f4faf6', fontSize: 23, fontWeight: '700', marginTop: 10 },
   muted: { color: '#b0c4bd', fontSize: 15 },
   label: { color: '#bdd1c9', fontSize: 15 },
   controls: { gap: 8 },
   modeSwitch: { flexDirection: 'row', gap: 8 },
-  modeButton: { flex: 1 },
+  modeButton: { flex: 1, flexDirection: 'row', gap: 8 },
   inactiveMode: { backgroundColor: '#bdd1c9' },
   input: { color: '#f4faf6', backgroundColor: '#1c2a26', borderRadius: 12, padding: 14, fontSize: 16 },
   button: { minHeight: 48, borderRadius: 12, backgroundColor: '#a8edc5', alignItems: 'center', justifyContent: 'center', padding: 8 },
