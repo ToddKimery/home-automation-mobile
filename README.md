@@ -20,6 +20,6 @@ Use a native build so the app's local network settings are applied. On the same 
 
 Copy `.env.example` to `.env` and set `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to the publishable key from your Supabase project. Rebuild the app after updating the file.
 
-The app opens in **Cloud** mode when configured and switches back to it if a local request times out or the sensor cannot be reached. Sign in with an existing Supabase Auth email and password for an account whose row-level security policies allow reading dryer runs. The app reads the latest 30 completed runs from `public.runs` and keeps the session in memory until the app process exits. Use **Refresh** to fetch newer runs.
+In the Supabase SQL Editor, run [the phone pairing setup](supabase/phone-pairing.sql). Copy the returned `phone_pairing_code` directly into **Cloud → Pair phone**. The app saves it in the phone's secure storage and opens cloud history automatically. Run the setup again only if you want a new code and need to revoke the old one.
 
-The ESP32 sends completed runs through `ingest_run`. Open **Local** mode on your home Wi-Fi for live status and readings. Keep firmware credentials, the ingest token, Supabase secret or service-role keys, and your real `.env` out of Git.
+The app reads the latest 30 completed runs through a read-only function. **Local** mode still shows live readings on home Wi-Fi. Keep pairing codes, firmware credentials, ingest tokens, and Supabase secret or service-role keys out of Git and chat.

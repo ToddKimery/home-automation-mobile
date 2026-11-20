@@ -1,36 +1,12 @@
-import 'react-native-url-polyfill/auto';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import * as SecureStore from 'expo-secure-store';
 import { useEffect, useState } from 'react';
-import { AppState, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-const requestTimeoutMs = 12000;
-
-const fetchWithTimeout: typeof fetch = async (input, init) => {
-  const request = new AbortController();
-  const upstreamSignal = init?.signal;
-  const cancel = () => request.abort();
-  if (upstreamSignal?.aborted) cancel();
-  upstreamSignal?.addEventListener('abort', cancel, { once: true });
-
-  const timeout = setTimeout(cancel, requestTimeoutMs);
-  try {
-    return await fetch(input, { ...init, signal: request.signal });
-  } finally {
-    clearTimeout(timeout);
-    upstreamSignal?.removeEventListener('abort', cancel);
-  }
-};
-
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
+const project = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim().replace(/\/$/, '');
 const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
-const client = url?.startsWith('https://') && key?.startsWith('sb_publishable_')
-  ? createClient(url, key, {
-    auth: { persistSession: false, detectSessionInUrl: false, autoRefreshToken: true },
-    global: { fetch: fetchWithTimeout },
-  })
-  : undefined;
+const codeKey = 'dryer.phonePairingCode';
 
-export const cloudConfigured = Boolean(client);
+export const cloudConfigured = Boolean(project?.startsWith('https://') && key?.startsWith('sb_publishable_'));
 
 type CloudRun = {
   run_id: number | string;
@@ -38,148 +14,139 @@ type CloudRun = {
   peak_c: number | null;
 };
 
-export default function CloudHistory() {
-  if (!client) {
-    return <Text style={styles.secondary}>Set the Supabase project URL and publishable key in your local .env file, then rebuild the app.</Text>;
-  }
-  return <SignedInHistory supabase={client} />;
+function isRun(value: unknown): value is CloudRun {
+  if (!value || typeof value !== 'object') return false;
+  const run = value as Partial<CloudRun>;
+  return (typeof run.run_id === 'number' || typeof run.run_id === 'string') &&
+    (run.started_at === null || typeof run.started_at === 'string') &&
+    (run.peak_c === null || typeof run.peak_c === 'number');
 }
 
-function SignedInHistory({ supabase }: { supabase: SupabaseClient }) {
-  const [userId, setUserId] = useState<string>();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authError, setAuthError] = useState('');
-  const [history, setHistory] = useState<{ userId: string; runs: CloudRun[] }>();
-  const runs = history?.userId === userId ? history?.runs : undefined;
-  const [queryError, setQueryError] = useState('');
-  const [refresh, setRefresh] = useState(0);
-
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user.id);
+async function readRuns(code: string): Promise<CloudRun[]> {
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), 12000);
+  try {
+    const response = await fetch(`${project}/rest/v1/rpc/read_dryer_phone_runs`, {
+      method: 'POST',
+      headers: { apikey: key!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_code: code }),
+      signal: abort.signal,
     });
-    function updateRefresh(state: string) {
-      if (state === 'active') void supabase.auth.startAutoRefresh();
-      else void supabase.auth.stopAutoRefresh();
-    }
-    updateRefresh(AppState.currentState ?? "active");
-    const appState = AppState.addEventListener('change', updateRefresh);
-    return () => {
-      subscription.unsubscribe();
-      appState.remove();
-      void supabase.auth.stopAutoRefresh();
-    };
-  }, [supabase]);
+    if (response.status === 403) throw new Error('This pairing code is invalid or has been revoked.');
+    if (response.status === 404) throw new Error('Phone pairing has not been set up in Supabase yet.');
+    if (!response.ok) throw new Error(`Cloud history is unavailable (HTTP ${response.status}).`);
+    const runs: unknown = await response.json();
+    if (!Array.isArray(runs) || !runs.every(isRun)) throw new Error('Supabase returned unexpected run data.');
+    return runs;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export default function CloudHistory() {
+  const [savedCode, setSavedCode] = useState<string | null>();
+  const [input, setInput] = useState('');
+  const [runs, setRuns] = useState<CloudRun[]>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    setHistory(undefined);
-    setQueryError('');
-    if (!userId) return;
-    const accountId = userId;
-    const request = new AbortController();
-    const timeout = setTimeout(() => request.abort(), 12000);
-
-    async function loadRuns() {
+    if (!cloudConfigured) return;
+    let active = true;
+    async function loadSavedCode() {
       try {
-        const { data, error } = await supabase
-          .from('runs')
-          .select('run_id,started_at,peak_c')
-          .order('started_at', { ascending: false, nullsFirst: false })
-          .order('created_at', { ascending: false })
-          .limit(30)
-          .abortSignal(request.signal)
-          .returns<CloudRun[]>();
-        if (request.signal.aborted) return;
-        if (error) setQueryError(error.message);
-        else setHistory({ userId: accountId, runs: data ?? [] });
-      } catch {
-        if (!request.signal.aborted) setQueryError('Could not load runs. Check your internet connection.');
+        const code = await SecureStore.getItemAsync(codeKey);
+        if (!active) return;
+        setSavedCode(code);
+        if (code) {
+          setBusy(true);
+          const history = await readRuns(code);
+          if (active) setRuns(history);
+        }
+      } catch (cause) {
+        if (active) {
+          setSavedCode((previous) => previous ?? null);
+          setError(cause instanceof Error ? cause.message : 'Could not load cloud history.');
+        }
       } finally {
-        clearTimeout(timeout);
+        if (active) setBusy(false);
       }
     }
+    void loadSavedCode();
+    return () => { active = false; };
+  }, []);
 
-    const showTimeout = () => setQueryError('Supabase did not respond in time.');
-    request.signal.addEventListener('abort', showTimeout, { once: true });
-    void loadRuns();
-    return () => {
-      clearTimeout(timeout);
-      request.signal.removeEventListener('abort', showTimeout);
-      request.abort();
-    };
-  }, [supabase, userId, refresh]);
-
-  async function signIn() {
-    if (authBusy || !email.trim() || !password) return;
-    setAuthBusy(true);
-    setAuthError('');
+  async function load(code: string, pair: boolean) {
+    if (busy) return;
+    if (!/^[0-9a-f]{64}$/.test(code)) {
+      setError('Paste the complete pairing code from Supabase.');
+      return;
+    }
+    setBusy(true);
+    setError('');
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error?.code === 'invalid_credentials') {
-        setAuthError('Email or password is incorrect. Use your dryer project’s Supabase Auth account.');
-      } else if (error?.name === 'AuthRetryableFetchError') {
-        setAuthError('Could not reach Supabase. Check Wi-Fi or mobile data and try again.');
-      } else if (error) {
-        setAuthError(error.message);
-      } else if (data.session) {
-        setUserId(data.session.user.id);
-      } else {
-        setAuthError('Supabase did not return a sign-in session.');
+      const history = await readRuns(code);
+      if (pair) {
+        await SecureStore.setItemAsync(codeKey, code);
+        setSavedCode(code);
+        setInput('');
       }
-    } catch {
-      setAuthError('Could not sign in. Check your internet connection.');
+      setRuns(history);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not load cloud history.');
     } finally {
-      setPassword('');
-      setAuthBusy(false);
+      setBusy(false);
     }
   }
 
-  async function signOut() {
-    setAuthBusy(true);
-    setAuthError('');
+  async function forgetPhone() {
+    if (busy) return;
     try {
-      const { error } = await supabase.auth.signOut({ scope: 'local' });
-      if (error) setAuthError(error.message);
+      await SecureStore.deleteItemAsync(codeKey);
+      setSavedCode(null);
+      setRuns(undefined);
+      setError('');
     } catch {
-      setAuthError('Could not sign out. Try again.');
-    } finally {
-      setAuthBusy(false);
+      setError('Could not remove the pairing code.');
     }
+  }
+
+  if (!cloudConfigured) {
+    return <Text style={styles.secondary}>Configure the Supabase URL and publishable key, then rebuild the app.</Text>;
   }
 
   return (
     <View style={styles.content}>
       <Text accessibilityRole="header" style={styles.title}>Cloud run history</Text>
-      <Text style={styles.secondary}>Completed cycles from Supabase. Live readings are available in Local mode.</Text>
-      {!!authError && <Text accessibilityLiveRegion="polite" style={styles.error}>{authError}</Text>}
-      {!userId ? (
+      {!!error && <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text>}
+      {savedCode === undefined && <Text style={styles.secondary}>Checking phone pairing…</Text>}
+      {savedCode === null && (
         <>
-          <TextInput accessibilityLabel="Email" autoCapitalize="none" autoComplete="email" autoCorrect={false}
-            keyboardType="email-address" placeholder="Email" placeholderTextColor="#b0c4bd" style={styles.input}
-            value={email} onChangeText={setEmail} />
-          <TextInput accessibilityLabel="Password" autoComplete="current-password" secureTextEntry
-            placeholder="Password" placeholderTextColor="#b0c4bd" style={styles.input}
-            value={password} onChangeText={setPassword} onSubmitEditing={() => void signIn()} />
-          <Pressable accessibilityRole="button" style={styles.button} disabled={authBusy}
-            onPress={() => void signIn()}>
-            <Text style={styles.primary}>{authBusy ? 'Signing in…' : 'Sign in'}</Text>
+          <Text style={styles.secondary}>Pair this phone once to view completed runs away from home.</Text>
+          <TextInput accessibilityLabel="Phone pairing code" autoCapitalize="none" autoCorrect={false}
+            secureTextEntry placeholder="Phone pairing code" placeholderTextColor="#b0c4bd"
+            style={styles.input} value={input} onChangeText={setInput}
+            onSubmitEditing={() => void load(input.trim().toLowerCase(), true)} />
+          <Pressable accessibilityRole="button" style={styles.button} disabled={busy}
+            onPress={() => void load(input.trim().toLowerCase(), true)}>
+            <Text style={styles.primary}>{busy ? 'Pairing…' : 'Pair phone'}</Text>
           </Pressable>
         </>
-      ) : (
+      )}
+      {!!savedCode && (
         <>
           <View style={styles.actions}>
-            <Pressable accessibilityRole="button" style={styles.button} onPress={() => setRefresh((value) => value + 1)}>
+            <Pressable accessibilityRole="button" style={styles.button} disabled={busy}
+              onPress={() => void load(savedCode, false)}>
               <Text style={styles.primary}>Refresh</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" style={styles.button} disabled={authBusy} onPress={() => void signOut()}>
-              <Text style={styles.primary}>Sign out</Text>
+            <Pressable accessibilityRole="button" style={styles.button} disabled={busy}
+              onPress={() => void forgetPhone()}>
+              <Text style={styles.primary}>Forget pairing</Text>
             </Pressable>
           </View>
-          {!!queryError && <Text accessibilityLiveRegion="polite" style={styles.error}>{queryError}</Text>}
-          {!queryError && !runs && <Text style={styles.secondary}>Loading runs…</Text>}
-          {runs?.length === 0 && <Text style={styles.secondary}>No completed runs are available to this account.</Text>}
+          {busy && <Text style={styles.secondary}>Loading runs…</Text>}
+          {!busy && !error && runs?.length === 0 && <Text style={styles.secondary}>No completed runs yet.</Text>}
           {runs?.map((run) => (
             <View key={String(run.run_id)} style={styles.card}>
               <Text style={styles.primary}>
