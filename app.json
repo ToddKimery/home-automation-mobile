@@ -2,7 +2,7 @@
   "expo": {
     "name": "Home Monitor",
     "slug": "home-automation-mobile",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "ios": {
       "bundleIdentifier": "com.toddkimery.homeautomationmobile",
       "infoPlist": {
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.toddkimery.homeautomationmobile",
-      "versionCode": 3
+      "versionCode": 4
     },
     "plugins": [
       [

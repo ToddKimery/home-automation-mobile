@@ -23,3 +23,5 @@ Copy `.env.example` to `.env` and set `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to 
 In the Supabase SQL Editor, run [the phone pairing setup](supabase/phone-pairing.sql). Copy the returned `phone_pairing_code` directly into **Cloud → Pair phone**. The app saves it in the phone's secure storage and opens cloud history automatically. Run the setup again only if you want a new code and need to revoke the old one.
 
 The app reads the latest 30 completed runs through a read-only function. **Local** mode still shows live readings on home Wi-Fi. Keep pairing codes, firmware credentials, ingest tokens, and Supabase secret or service-role keys out of Git and chat.
+
+Tap any completed run to see temperature in °F and relative humidity in separate graphs. Local graphs read from the ESP32. For Cloud graphs, run [the Cloud graphs upgrade](supabase/run-graphs.sql) after the pairing setup. The upgrade keeps the current pairing code and reads samples from `public.readings`.

@@ -1,8 +1,9 @@
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import CloudHistory, { cloudConfigured } from './components/CloudHistory';
+import RunDetails, { decodeRunSeries, fahrenheit } from './components/RunDetails';
 
 type SensorStatus = {
   running: boolean;
@@ -46,6 +47,7 @@ export default function App() {
   const [mode, setMode] = useState<'local' | 'cloud'>(cloudConfigured ? 'cloud' : 'local');
   const [address, setAddress] = useState(addressExample);
   const [origin, setOrigin] = useState('');
+  const [selectedRun, setSelectedRun] = useState<Run>();
   const [attempt, setAttempt] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [loading, setLoading] = useState(false);
@@ -118,6 +120,10 @@ export default function App() {
     };
   }, [origin, attempt, mode]);
 
+  const selectedId = selectedRun?.id;
+  const loadRun = useCallback(async (signal: AbortSignal) =>
+    decodeRunSeries(await readJson(origin, `/run?id=${selectedId}`, signal)), [origin, selectedId]);
+
   const status = snapshot?.status;
   const age = status?.lastOkAgoS;
   const stale = age !== undefined && (age < 0 || age > 45);
@@ -175,7 +181,7 @@ export default function App() {
                     <View style={styles.metrics}>
                       <View>
                         <Text style={styles.label}>Temperature</Text>
-                        <Text style={styles.value}>{status.t == null ? 'Unavailable' : `${status.t.toFixed(1)} °C`}</Text>
+                        <Text style={styles.value}>{status.t == null ? 'Unavailable' : `${fahrenheit(status.t).toFixed(1)} °F`}</Text>
                       </View>
                       <View>
                         <Text style={styles.label}>Humidity</Text>
@@ -190,16 +196,24 @@ export default function App() {
                   <Text accessibilityRole="header" style={styles.heading}>Recent runs</Text>
                   {!snapshot.runs.length && <Text style={styles.muted}>No completed runs on the sensor.</Text>}
                   {snapshot.runs.map((run) => (
-                    <View key={run.id} style={styles.row}>
+                    <Pressable key={run.id} accessibilityRole="button" accessibilityHint="Open run graphs" style={styles.row} onPress={() => setSelectedRun(run)}>
                       <Text style={styles.value}>{run.start > 0 ? new Date(run.start * 1000).toLocaleString() : `Run ${run.id}`}</Text>
-                      <Text style={styles.muted}>{((run.n * run.step) / 60).toFixed(1)} min · Peak {(run.peak / 10).toFixed(1)} °C</Text>
-                    </View>
+                      <Text style={styles.muted}>{((run.n * run.step) / 60).toFixed(1)} min · Peak {fahrenheit(run.peak / 10).toFixed(1)} °F</Text>
+                      <Text style={styles.muted}>View graphs</Text>
+                    </Pressable>
                   ))}
             </>
           )}
             </>
           )}
         </ScrollView>
+        {mode === 'local' && selectedRun && (
+          <RunDetails
+            title={selectedRun.start > 0 ? new Date(selectedRun.start * 1000).toLocaleString() : `Run ${selectedRun.id}`}
+            onClose={() => setSelectedRun(undefined)}
+            load={loadRun}
+          />
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );

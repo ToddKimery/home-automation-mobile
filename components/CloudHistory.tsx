@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import RunDetails, { decodeRunSeries, fahrenheit } from './RunDetails';
 
 const project = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim().replace(/\/$/, '');
 const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
@@ -9,6 +10,7 @@ const codeKey = 'dryer.phonePairingCode';
 export const cloudConfigured = Boolean(project?.startsWith('https://') && key?.startsWith('sb_publishable_'));
 
 type CloudRun = {
+  run_key?: string | number;
   run_id: number | string;
   started_at: string | null;
   peak_c: number | null;
@@ -18,6 +20,7 @@ function isRun(value: unknown): value is CloudRun {
   if (!value || typeof value !== 'object') return false;
   const run = value as Partial<CloudRun>;
   return (typeof run.run_id === 'number' || typeof run.run_id === 'string') &&
+    (run.run_key === undefined || typeof run.run_key === 'string' || typeof run.run_key === 'number') &&
     (run.started_at === null || typeof run.started_at === 'string') &&
     (run.peak_c === null || typeof run.peak_c === 'number');
 }
@@ -46,6 +49,7 @@ async function readRuns(code: string): Promise<CloudRun[]> {
 export default function CloudHistory() {
   const [savedCode, setSavedCode] = useState<string | null>();
   const [input, setInput] = useState('');
+  const [selectedRun, setSelectedRun] = useState<CloudRun>();
   const [runs, setRuns] = useState<CloudRun[]>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -111,6 +115,21 @@ export default function CloudHistory() {
     }
   }
 
+  const runKey = selectedRun?.run_key;
+  const loadGraph = useCallback(async (signal: AbortSignal) => {
+    if (runKey == null) throw new Error('Run the Cloud graphs SQL upgrade in Supabase, then refresh the run list.');
+    const response = await fetch(`${project}/rest/v1/rpc/read_dryer_phone_run_graph`, {
+      method: 'POST',
+      headers: { apikey: key!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_code: savedCode, p_run_key: String(runKey) }),
+      signal,
+    });
+    if (response.status === 404) throw new Error('Run the Cloud graphs SQL upgrade in Supabase to view this graph.');
+    if (response.status === 403) throw new Error('This pairing code is invalid or has been revoked.');
+    if (!response.ok) throw new Error(`Cloud graph is unavailable (HTTP ${response.status}).`);
+    return decodeRunSeries(await response.json(), 'display');
+  }, [runKey, savedCode]);
+
   if (!cloudConfigured) {
     return <Text style={styles.secondary}>Configure the Supabase URL and publishable key, then rebuild the app.</Text>;
   }
@@ -148,16 +167,22 @@ export default function CloudHistory() {
           {busy && <Text style={styles.secondary}>Loading runs…</Text>}
           {!busy && !error && runs?.length === 0 && <Text style={styles.secondary}>No completed runs yet.</Text>}
           {runs?.map((run) => (
-            <View key={String(run.run_id)} style={styles.card}>
+            <Pressable key={String(run.run_key ?? run.run_id)} accessibilityRole="button"
+              accessibilityHint="Open run graphs" onPress={() => setSelectedRun(run)} style={styles.card}>
               <Text style={styles.primary}>
                 {run.started_at ? new Date(run.started_at).toLocaleString() : `Run ${run.run_id}`}
               </Text>
               <Text style={styles.secondary}>
-                {run.peak_c == null ? 'Peak unavailable' : `Peak ${run.peak_c} °C`}
+                {run.peak_c == null ? 'Peak unavailable' : `Peak ${fahrenheit(run.peak_c).toFixed(1)} °F`}
               </Text>
-            </View>
+              <Text style={styles.secondary}>View graphs</Text>
+            </Pressable>
           ))}
         </>
+      )}
+      {selectedRun && (
+        <RunDetails title={selectedRun.started_at ? new Date(selectedRun.started_at).toLocaleString() : `Run ${selectedRun.run_id}`}
+          onClose={() => setSelectedRun(undefined)} load={loadGraph} />
       )}
     </View>
   );

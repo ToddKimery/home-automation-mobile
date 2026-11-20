@@ -30,13 +30,14 @@ begin
   return (
     select coalesce(pg_catalog.jsonb_agg(
       pg_catalog.jsonb_build_object(
+        'run_key', latest.key,
         'run_id', latest.run_id,
         'started_at', latest.started_at,
         'peak_c', latest.peak_c
       ) order by latest.started_at desc nulls last, latest.created_at desc
     ), '[]'::jsonb)
     from (
-      select r.run_id, r.started_at, r.peak_c, r.created_at
+      select r.key, r.run_id, r.started_at, r.peak_c, r.created_at
       from public.runs as r
       order by r.started_at desc nulls last, r.created_at desc
       limit 30
