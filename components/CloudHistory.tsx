@@ -192,6 +192,7 @@ export default function CloudHistory() {
       )}
       {selectedRun && (
         <RunDetails title={selectedRun.started_at ? new Date(selectedRun.started_at).toLocaleString() : `Run ${selectedRun.run_id}`}
+          startedAt={selectedRun.started_at ? Date.parse(selectedRun.started_at) : undefined}
           onClose={() => setSelectedRun(undefined)} load={loadGraph} />
       )}
     </View>

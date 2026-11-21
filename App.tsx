@@ -225,6 +225,7 @@ export default function App() {
         {mode === 'local' && selectedRun && (
           <RunDetails
             title={selectedRun.start > 0 ? new Date(selectedRun.start * 1000).toLocaleString() : `Run ${selectedRun.id}`}
+            startedAt={selectedRun.start > 0 ? selectedRun.start * 1000 : undefined}
             onClose={() => setSelectedRun(undefined)}
             load={loadRun}
           />
