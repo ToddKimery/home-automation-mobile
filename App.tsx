@@ -1,3 +1,4 @@
+import * as SecureStore from 'expo-secure-store';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -17,7 +18,26 @@ type SensorStatus = {
 type Run = { id: number; start: number; n: number; step: number; peak: number };
 type Snapshot = { status: SensorStatus; runs: Run[]; receivedAt: number };
 
-const addressExample = 'http://dryer-monitor.local';
+const sensorAddressKey = 'dryer.sensorAddress';
+
+function parseSensorAddress(address: string): string | undefined {
+  const input = address.trim();
+  if (!input) return undefined;
+
+  try {
+    const url = new URL(input.includes('://') ? input : `http://${input}`);
+    if (['http:', 'https:'].includes(url.protocol) && url.hostname &&
+      !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash) {
+      return url.origin;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+const defaultSensorAddress = parseSensorAddress(process.env.EXPO_PUBLIC_DRYER_SENSOR_URL ?? '') ??
+  'http://dryer-monitor.local';
 
 async function readJson(origin: string, path: string, signal: AbortSignal): Promise<unknown> {
   const response = await fetch(origin + path, { signal });
@@ -46,7 +66,7 @@ function isRun(value: unknown): value is Run {
 
 export default function App() {
   const [mode, setMode] = useState<'local' | 'cloud'>(cloudConfigured ? 'cloud' : 'local');
-  const [address, setAddress] = useState(addressExample);
+  const [address, setAddress] = useState(defaultSensorAddress);
   const [origin, setOrigin] = useState('');
   const [selectedRun, setSelectedRun] = useState<Run>();
   const [attempt, setAttempt] = useState(0);
@@ -54,22 +74,40 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [addressError, setAddressError] = useState('');
-  const [cloudFallback, setCloudFallback] = useState(false);
-
-  function connect() {
-    const input = address.trim();
-    try {
-      const url = new URL(input.includes('://') ? input : `http://${input}`);
-      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname ||
-        url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-        throw new Error('Invalid address');
+  useEffect(() => {
+    let active = true;
+    async function restoreSensorAddress() {
+      let storedAddress: string | null = null;
+      try {
+        storedAddress = await SecureStore.getItemAsync(sensorAddressKey);
+      } catch {
+        if (active) setAddressError('Could not restore the saved sensor address.');
       }
-      setAddressError('');
-      if (origin !== url.origin) setSnapshot(undefined);
-      setOrigin(url.origin);
-      setAttempt((previous) => previous + 1);
+      if (!active) return;
+      const restored = parseSensorAddress(storedAddress ?? '') ?? defaultSensorAddress;
+      setAddress(restored);
+      setOrigin(restored);
+    }
+    void restoreSensorAddress();
+    return () => { active = false; };
+  }, []);
+
+  async function connect() {
+    const nextOrigin = parseSensorAddress(address);
+    if (!nextOrigin) {
+      setAddressError('Enter the sensor hostname or IP address, including its port if needed.');
+      return;
+    }
+
+    setAddressError('');
+    setAddress(nextOrigin);
+    if (origin !== nextOrigin) setSnapshot(undefined);
+    setOrigin(nextOrigin);
+    setAttempt((previous) => previous + 1);
+    try {
+      await SecureStore.setItemAsync(sensorAddressKey, nextOrigin);
     } catch {
-      setAddressError('Enter the ESP32 hostname or IP address.');
+      setAddressError('Connected address could not be saved on this phone.');
     }
   }
 
@@ -98,10 +136,6 @@ export default function App() {
         if (active) {
           const detail = cause instanceof Error ? cause.message : 'Connection failed.';
           setError(request.signal.aborted ? 'The dryer did not respond in time.' : detail);
-          if (cloudConfigured && (request.signal.aborted || cause instanceof TypeError)) {
-            setCloudFallback(true);
-            setMode('cloud');
-          }
         }
       } finally {
         clearTimeout(timeout);
@@ -145,20 +179,15 @@ export default function App() {
               <Text style={styles.buttonText}>Local</Text>
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'cloud' }}
-              style={[styles.button, styles.modeButton, mode !== 'cloud' && styles.inactiveMode]} onPress={() => { setCloudFallback(false); setMode('cloud'); }}>
+              style={[styles.button, styles.modeButton, mode !== 'cloud' && styles.inactiveMode]} onPress={() => setMode('cloud')}>
               <Icon name="cloud" color="#111918" />
               <Text style={styles.buttonText}>Cloud</Text>
             </Pressable>
           </View>
-          {mode === 'cloud' && (
-            <>
-              {cloudFallback && <Text style={styles.muted}>The dryer is unreachable on Wi-Fi. Showing cloud history.</Text>}
-              <CloudHistory />
-            </>
-          )}
+          {mode === 'cloud' && <CloudHistory />}
           {mode === 'local' && (
             <>
-              <Text style={styles.muted}>Connect your phone and ESP32 to the same Wi-Fi network.</Text>
+              <Text style={styles.muted}>Use Tailscale when you’re away from home.</Text>
               <Text style={styles.label}>Sensor address</Text>
               <View style={styles.controls}>
                 <TextInput
@@ -167,16 +196,17 @@ export default function App() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="url"
+                  editable={Boolean(origin)}
                   value={address}
                   onChangeText={setAddress}
-                  onSubmitEditing={connect}
+                  onSubmitEditing={() => void connect()}
                 />
-                <Pressable accessibilityRole="button" style={styles.button} onPress={connect}>
+                <Pressable accessibilityRole="button" style={styles.button} disabled={!origin} onPress={() => void connect()}>
                   <Text style={styles.buttonText}>Connect</Text>
                 </Pressable>
               </View>
               {!!addressError && <Text accessibilityLiveRegion="polite" style={styles.error}>{addressError}</Text>}
-              {!!error && <Text accessibilityLiveRegion="polite" style={styles.error}>{error} Check Wi-Fi and the sensor address.</Text>}
+              {!!error && <Text accessibilityLiveRegion="polite" style={styles.error}>{error} Check Tailscale or your home Wi-Fi, and verify the sensor address.</Text>}
               {loading && !snapshot && <Text style={styles.muted}>Connecting…</Text>}
               {snapshot && status && (
                 <>

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Home Monitor",
     "slug": "home-automation-mobile",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "ios": {
       "bundleIdentifier": "com.toddkimery.homeautomationmobile",
       "infoPlist": {
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.toddkimery.homeautomationmobile",
-      "versionCode": 6,
+      "versionCode": 7,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/adaptive-foreground.png",
         "monochromeImage": "./assets/icons/adaptive-monochrome.png",

@@ -25,3 +25,5 @@ In the Supabase SQL Editor, run [the phone pairing setup](supabase/phone-pairing
 The app reads the latest 30 completed runs through a read-only function. **Local** mode still shows live readings on home Wi-Fi. Keep pairing codes, firmware credentials, ingest tokens, and Supabase secret or service-role keys out of Git and chat.
 
 Tap any completed run to see temperature in °F and relative humidity in separate graphs. Local graphs read from the ESP32. For Cloud graphs, run [the Cloud graphs upgrade](supabase/run-graphs.sql) after the pairing setup. The upgrade keeps the current pairing code and reads samples from `public.readings`.
+
+To preconfigure a LAN or Tailscale sensor address in a build, set `EXPO_PUBLIC_DRYER_SENSOR_URL` in your local `.env`. The app automatically connects when you open **Local** and remembers any address you save with **Connect**.
