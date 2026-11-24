@@ -27,3 +27,9 @@ The app reads the latest 30 completed runs through a read-only function. **Local
 Tap any completed run to see temperature in °F and relative humidity in separate graphs. Local graphs read from the ESP32. For Cloud graphs, run [the Cloud graphs upgrade](supabase/run-graphs.sql) after the pairing setup. The upgrade keeps the current pairing code and reads samples from `public.readings`.
 
 To preconfigure a LAN or Tailscale sensor address in a build, set `EXPO_PUBLIC_DRYER_SENSOR_URL` in your local `.env`. The app automatically connects when you open **Local** and remembers any address you save with **Connect**.
+
+## WLED lights
+
+Open **Lights**, enter a WLED base URL or a Tailscale-only proxy URL, and tap **Refresh status**. A build can prefill this with `EXPO_PUBLIC_WLED_URL` in its local `.env`. The app remembers that URL on the phone.
+
+The tab uses GET on `/json/info`, `/json/state`, and `/json/eff` to show the device name, power, brightness, primary color, and effect. The effect list is optional.

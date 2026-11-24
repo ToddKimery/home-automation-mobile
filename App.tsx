@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import Icon from './components/Icon';
+import Lights from './components/Lights';
 import CloudHistory, { cloudConfigured } from './components/CloudHistory';
 import RunDetails, { decodeRunSeries, fahrenheit } from './components/RunDetails';
 
@@ -65,7 +66,7 @@ function isRun(value: unknown): value is Run {
 }
 
 export default function App() {
-  const [mode, setMode] = useState<'local' | 'cloud'>(cloudConfigured ? 'cloud' : 'local');
+  const [mode, setMode] = useState<'local' | 'cloud' | 'lights'>(cloudConfigured ? 'cloud' : 'local');
   const [address, setAddress] = useState(defaultSensorAddress);
   const [origin, setOrigin] = useState('');
   const [selectedRun, setSelectedRun] = useState<Run>();
@@ -183,8 +184,13 @@ export default function App() {
               <Icon name="cloud" color="#111918" />
               <Text style={styles.buttonText}>Cloud</Text>
             </Pressable>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'lights' }}
+              style={[styles.button, styles.modeButton, mode !== 'lights' && styles.inactiveMode]} onPress={() => setMode('lights')}>
+              <Text style={styles.buttonText}>Lights</Text>
+            </Pressable>
           </View>
           {mode === 'cloud' && <CloudHistory />}
+          {mode === 'lights' && <Lights />}
           {mode === 'local' && (
             <>
               <Text style={styles.muted}>Use Tailscale when you’re away from home.</Text>
