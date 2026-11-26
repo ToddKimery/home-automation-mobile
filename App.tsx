@@ -5,7 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import Icon from './components/Icon';
 import Lights from './components/Lights';
-import CloudHistory, { cloudConfigured } from './components/CloudHistory';
+import CloudHistory from './components/CloudHistory';
 import RunDetails, { decodeRunSeries, fahrenheit } from './components/RunDetails';
 
 type SensorStatus = {
@@ -17,7 +17,7 @@ type SensorStatus = {
 };
 
 type Run = { id: number; start: number; n: number; step: number; peak: number };
-type Snapshot = { status: SensorStatus; runs: Run[]; receivedAt: number };
+type Snapshot = { status: SensorStatus; receivedAt: number };
 
 const sensorAddressKey = 'dryer.sensorAddress';
 
@@ -66,12 +66,16 @@ function isRun(value: unknown): value is Run {
 }
 
 export default function App() {
-  const [mode, setMode] = useState<'local' | 'cloud' | 'lights'>(cloudConfigured ? 'cloud' : 'local');
+  const [mode, setMode] = useState<'dryer' | 'lights'>('dryer');
   const [address, setAddress] = useState(defaultSensorAddress);
   const [origin, setOrigin] = useState('');
   const [selectedRun, setSelectedRun] = useState<Run>();
   const [attempt, setAttempt] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot>();
+  const [runs, setRuns] = useState<Run[]>();
+  const [runsError, setRunsError] = useState('');
+  const [showSensorRuns, setShowSensorRuns] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [addressError, setAddressError] = useState('');
@@ -102,7 +106,11 @@ export default function App() {
 
     setAddressError('');
     setAddress(nextOrigin);
-    if (origin !== nextOrigin) setSnapshot(undefined);
+    if (origin !== nextOrigin) {
+      setSnapshot(undefined);
+      setRuns(undefined);
+      setRunsError('');
+    }
     setOrigin(nextOrigin);
     setAttempt((previous) => previous + 1);
     try {
@@ -113,7 +121,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!origin || mode !== 'local') return;
+    if (!origin || mode !== 'dryer') return;
     let active = true;
     let nextPoll: ReturnType<typeof setTimeout> | undefined;
     let currentRequest: AbortController | undefined;
@@ -123,29 +131,35 @@ export default function App() {
       currentRequest = request;
       const timeout = setTimeout(() => request.abort(), 8000);
       setLoading(true);
-      setError('');
-      try {
-        const [status, runs] = await Promise.all([
-          readJson(origin, '/status', request.signal),
-          readJson(origin, '/runs', request.signal),
-        ]);
-        if (!isStatus(status) || !Array.isArray(runs) || !runs.every(isRun)) {
-          throw new Error('The dryer returned unexpected data.');
+
+      const live = readJson(origin, '/status', request.signal).then((status) => {
+        if (!isStatus(status)) throw new Error('The dryer returned unexpected live data.');
+        if (active) {
+          setSnapshot({ status, receivedAt: Date.now() });
+          setError('');
         }
-        if (active) setSnapshot({ status, runs, receivedAt: Date.now() });
-      } catch (cause) {
+      }).catch((cause: unknown) => {
         if (active) {
           const detail = cause instanceof Error ? cause.message : 'Connection failed.';
           setError(request.signal.aborted ? 'The dryer did not respond in time.' : detail);
         }
-      } finally {
-        clearTimeout(timeout);
-        request.abort();
+      }).finally(() => {
+        if (active) setLoading(false);
+      });
+
+      const history = readJson(origin, '/runs', request.signal).then((data) => {
+        if (!Array.isArray(data) || !data.every(isRun)) throw new Error('Unexpected run history.');
         if (active) {
-          setLoading(false);
-          nextPoll = setTimeout(refresh, 15000);
+          setRuns(data);
+          setRunsError('');
         }
-      }
+      }).catch(() => {
+        if (active) setRunsError('Sensor run history is unavailable.');
+      });
+
+      await Promise.all([live, history]);
+      clearTimeout(timeout);
+      if (active) nextPoll = setTimeout(refresh, 15000);
     }
 
     void refresh();
@@ -162,7 +176,7 @@ export default function App() {
 
   const status = snapshot?.status;
   const age = status?.lastOkAgoS;
-  const stale = age !== undefined && (age < 0 || age > 45);
+  const stale = Boolean(error) || (age !== undefined && (age < 0 || age > 45));
 
   return (
     <SafeAreaProvider>
@@ -174,77 +188,77 @@ export default function App() {
             <Text accessibilityRole="header" style={styles.title}>Dryer monitor</Text>
           </View>
           <View style={styles.modeSwitch}>
-            <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'local' }}
-              style={[styles.button, styles.modeButton, mode !== 'local' && styles.inactiveMode]} onPress={() => setMode('local')}>
-              <Icon name="local" color="#111918" />
-              <Text style={styles.buttonText}>Local</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'cloud' }}
-              style={[styles.button, styles.modeButton, mode !== 'cloud' && styles.inactiveMode]} onPress={() => setMode('cloud')}>
-              <Icon name="cloud" color="#111918" />
-              <Text style={styles.buttonText}>Cloud</Text>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'dryer' }}
+              style={[styles.button, styles.modeButton, mode !== 'dryer' && styles.inactiveMode]} onPress={() => setMode('dryer')}>
+              <Text style={styles.buttonText}>Dryer</Text>
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'lights' }}
               style={[styles.button, styles.modeButton, mode !== 'lights' && styles.inactiveMode]} onPress={() => setMode('lights')}>
               <Text style={styles.buttonText}>Lights</Text>
             </Pressable>
           </View>
-          {mode === 'cloud' && <CloudHistory />}
           {mode === 'lights' && <Lights />}
-          {mode === 'local' && (
+          {mode === 'dryer' && (
             <>
-              <Text style={styles.muted}>Use Tailscale when you’re away from home.</Text>
-              <Text style={styles.label}>Sensor address</Text>
-              <View style={styles.controls}>
-                <TextInput
-                  accessibilityLabel="Sensor address"
-                  style={styles.input}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                  editable={Boolean(origin)}
-                  value={address}
-                  onChangeText={setAddress}
-                  onSubmitEditing={() => void connect()}
-                />
-                <Pressable accessibilityRole="button" style={styles.button} disabled={!origin} onPress={() => void connect()}>
-                  <Text style={styles.buttonText}>Connect</Text>
-                </Pressable>
-              </View>
-              {!!addressError && <Text accessibilityLiveRegion="polite" style={styles.error}>{addressError}</Text>}
-              {!!error && <Text accessibilityLiveRegion="polite" style={styles.error}>{error} Check Tailscale or your home Wi-Fi, and verify the sensor address.</Text>}
-              {loading && !snapshot && <Text style={styles.muted}>Connecting…</Text>}
+              {!!error && <Text accessibilityLiveRegion="polite" style={styles.error}>{error} Check your Tailscale connection.</Text>}
+              {(!origin || loading) && !snapshot && <Text style={styles.muted}>Connecting to dryer…</Text>}
               {snapshot && status && (
-                <>
-                  <View style={styles.card}>
-                    <Text style={styles.label}>Dryer status</Text>
-                    <Text style={styles.status}>{status.running ? 'Running' : 'Idle'}</Text>
-                    {status.running && <Text style={styles.muted}>{status.runMin.toFixed(1)} min into cycle</Text>}
-                    <View style={styles.metrics}>
-                      <View>
-                        <View style={styles.iconRow}>
-                          <Icon name="temperature" size={18} color="#ffc487" />
-                          <Text style={styles.label}>Temperature</Text>
-                        </View>
-                        <Text style={styles.value}>{status.t == null ? 'Unavailable' : `${fahrenheit(status.t).toFixed(1)} °F`}</Text>
+                <View style={styles.card}>
+                  <Text style={styles.label}>{stale ? 'Last known dryer status' : 'Current dryer status'}</Text>
+                  <Text style={styles.status}>{status.running ? 'Running' : 'Idle'}</Text>
+                  {status.running && <Text style={styles.muted}>{status.runMin.toFixed(1)} min into cycle</Text>}
+                  <View style={styles.metrics}>
+                    <View>
+                      <View style={styles.iconRow}>
+                        <Icon name="temperature" size={18} color="#ffc487" />
+                        <Text style={styles.label}>Temperature</Text>
                       </View>
-                      <View>
-                        <View style={styles.iconRow}>
-                          <Icon name="humidity" size={18} color="#92d7f4" />
-                          <Text style={styles.label}>Humidity</Text>
-                        </View>
-                        <Text style={styles.value}>{status.h == null ? 'Unavailable' : `${status.h.toFixed(1)}%`}</Text>
-                      </View>
+                      <Text style={styles.value}>{status.t == null ? 'Unavailable' : `${fahrenheit(status.t).toFixed(1)} °F`}</Text>
                     </View>
-                    <Text style={styles.muted}>
-                      {stale ? 'Sensor readings are stale or unavailable. ' : ''}
-                      Updated {new Date(snapshot.receivedAt).toLocaleTimeString()}
-                    </Text>
+                    <View>
+                      <View style={styles.iconRow}>
+                        <Icon name="humidity" size={18} color="#92d7f4" />
+                        <Text style={styles.label}>Humidity</Text>
+                      </View>
+                      <Text style={styles.value}>{status.h == null ? 'Unavailable' : `${status.h.toFixed(1)}%`}</Text>
+                    </View>
                   </View>
-                  <Text accessibilityRole="header" style={styles.heading}>Recent runs</Text>
-                  {!snapshot.runs.length && <Text style={styles.muted}>No completed runs on the sensor.</Text>}
-                  {snapshot.runs.map((run) => (
-                    <Pressable key={run.id} accessibilityRole="button" accessibilityHint="Open run graphs" style={styles.row} onPress={() => setSelectedRun(run)}>
+                  <Text style={styles.muted}>
+                    Updated {new Date(snapshot.receivedAt).toLocaleTimeString()}
+                  </Text>
+                </View>
+              )}
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded: showSettings }}
+                style={styles.secondaryButton} onPress={() => setShowSettings((open) => !open)}>
+                <Text style={styles.value}>Sensor settings</Text>
+              </Pressable>
+              {showSettings && (
+                <View style={styles.controls}>
+                  <Text style={styles.label}>Sensor address</Text>
+                  <TextInput accessibilityLabel="Sensor address" style={styles.input}
+                    autoCapitalize="none" autoCorrect={false} keyboardType="url"
+                    editable={Boolean(origin)} value={address} onChangeText={setAddress}
+                    onSubmitEditing={() => void connect()} />
+                  <Pressable accessibilityRole="button" style={styles.button}
+                    disabled={!origin} onPress={() => void connect()}>
+                    <Text style={styles.buttonText}>Save and connect</Text>
+                  </Pressable>
+                </View>
+              )}
+              {!!addressError && <Text accessibilityLiveRegion="polite" style={styles.error}>{addressError}</Text>}
+              <CloudHistory />
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded: showSensorRuns }}
+                style={styles.secondaryButton} onPress={() => setShowSensorRuns((open) => !open)}>
+                <Text style={styles.value}>Runs on sensor</Text>
+              </Pressable>
+              {showSensorRuns && (
+                <>
+                  {!!runsError && <Text accessibilityLiveRegion="polite" style={styles.error}>{runsError}</Text>}
+                  {!runsError && !runs && <Text style={styles.muted}>Loading sensor runs…</Text>}
+                  {runs?.length === 0 && <Text style={styles.muted}>No completed runs on the sensor.</Text>}
+                  {runs?.map((run) => (
+                    <Pressable key={run.id} accessibilityRole="button" accessibilityHint="Open run graphs"
+                      style={styles.row} onPress={() => setSelectedRun(run)}>
                       <Text style={styles.value}>{run.start > 0 ? new Date(run.start * 1000).toLocaleString() : `Run ${run.id}`}</Text>
                       <Text style={styles.muted}>{((run.n * run.step) / 60).toFixed(1)} min · Peak {fahrenheit(run.peak / 10).toFixed(1)} °F</Text>
                       <View style={styles.iconRow}>
@@ -253,12 +267,12 @@ export default function App() {
                       </View>
                     </Pressable>
                   ))}
-            </>
-          )}
+                </>
+              )}
             </>
           )}
         </ScrollView>
-        {mode === 'local' && selectedRun && (
+        {mode === 'dryer' && selectedRun && (
           <RunDetails
             title={selectedRun.start > 0 ? new Date(selectedRun.start * 1000).toLocaleString() : `Run ${selectedRun.id}`}
             startedAt={selectedRun.start > 0 ? selectedRun.start * 1000 : undefined}
@@ -277,7 +291,6 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { color: '#f4faf6', fontSize: 34, fontWeight: '700', flexShrink: 1 },
-  heading: { color: '#f4faf6', fontSize: 23, fontWeight: '700', marginTop: 10 },
   muted: { color: '#b0c4bd', fontSize: 15 },
   label: { color: '#bdd1c9', fontSize: 15 },
   controls: { gap: 8 },
@@ -287,6 +300,7 @@ const styles = StyleSheet.create({
   input: { color: '#f4faf6', backgroundColor: '#1c2a26', borderRadius: 12, padding: 14, fontSize: 16 },
   button: { minHeight: 48, borderRadius: 12, backgroundColor: '#a8edc5', alignItems: 'center', justifyContent: 'center', padding: 8 },
   buttonText: { color: '#111918', fontSize: 16, fontWeight: '700' },
+  secondaryButton: { minHeight: 48, borderRadius: 12, backgroundColor: '#24342f', justifyContent: 'center', paddingHorizontal: 14 },
   error: { color: '#ffb7af', fontSize: 15 },
   card: { backgroundColor: '#1c2a26', borderRadius: 18, padding: 20, gap: 8, marginTop: 12 },
   status: { color: '#a8edc5', fontSize: 28, fontWeight: '700' },
